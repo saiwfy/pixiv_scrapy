@@ -4,6 +4,7 @@ import codecs
 import sys
 import urllib2
 import os
+import re
 
 reload(sys) 
 sys.setdefaultencoding('utf-8')
@@ -11,7 +12,7 @@ sys.setdefaultencoding('utf-8')
 class ToshiSpider(scrapy.Spider):
 	name = 'toshi'
 	allowed_domains = ['pixiv.net']
-	start_urls = ['https://www.pixiv.net/member_illust.php?id=20787']
+	start_urls = ['https://www.pixiv.net/member_illust.php?id=585055']
 
 
 	def __init__(self):
@@ -71,17 +72,18 @@ class ToshiSpider(scrapy.Spider):
 	def parse_detail(self,response):
 		#title和文件夹名字
 		foldername = response.css('#wrapper > div.layout-a > div.layout-column-2 > div > section.work-info > h1::text')[0].extract()
-
+		authorname = response.css('#wrapper > div.layout-a > div.layout-column-1 > div > div._unit.profile-unit > a > h1::text').extract_first()
 		if response.body.find('查看更多') > 0:
 			#多张图的情况
-			medium_link = response.css('#wrapper > div.layout-a > div.layout-column-2 > div > div.works_display > a._work.manga.multiple::attr(href)').extract_first()
+			medium_link = response.css('#wrapper > div.layout-a > div.layout-column-2 > div > div.works_display > a.read-more.js-click-trackable::attr(href)').extract_first()
+			
 			if medium_link is not None:
-				yield response.follow(medium_link,meta={'cookiejar': response.meta['cookiejar'],'foldername':foldername},callback=self.parse_manga)
-				#print original_img
+				yield response.follow(medium_link,meta={'cookiejar': response.meta['cookiejar'],'foldername':foldername,'authorname':authorname},callback=self.parse_manga)
 		else:
 			#单张图的情况
 			original_img = response.css('.original-image::attr(data-src)').extract_first()
-			self.download_img(original_img,foldername)
+			if original_img is not None:
+				self.download_img(original_img,foldername,authorname)
 
 		# fp = codecs.open('2.html','w','utf-8')
 		# fp.write(response.body)
@@ -91,17 +93,18 @@ class ToshiSpider(scrapy.Spider):
 		for sel in response.css('#main > section > div'):
 			manga_big_link = sel.css('a::attr(href)').extract_first()
 			if manga_big_link is not None:
-				yield response.follow(manga_big_link,meta={'cookiejar': response.meta['cookiejar'],'foldername':response.meta['foldername']},callback=self.parse_manga_big)
+				yield response.follow(manga_big_link,meta={'cookiejar': response.meta['cookiejar'],'foldername':response.meta['foldername'],'authorname':response.meta['authorname']},callback=self.parse_manga_big)
 
 	def parse_manga_big(self,response):
 		original_url = response.css('body > img::attr(src)').extract_first()
-		self.download_img(original_url,response.meta['foldername'])
+		self.download_img(original_url,response.meta['foldername'],response.meta['authorname'])
 		# return {
 		# 	"original_url":response.css('body > img::attr(src)').extract_first()
 		# }
 
-	def download_img(self,imgsrc,foldername):
+	def download_img(self,imgsrc,foldername,authorname):
 #https://i.pximg.net/img-original/img/2017/02/11/00/09/24/61384715_p0.jpg
+
 		download_header = {
 			# ":authority":"i.pximg.net",
 			# ":method":"GET",
@@ -117,12 +120,18 @@ class ToshiSpider(scrapy.Spider):
 			"user-agent":"Mozilla/5.0 (Windows NT 6.2; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
 		}
 		filename = imgsrc.split("/img/")[1].replace("/","")
-		foldername = foldername.replace('/','')
+		#过滤文件夹的特殊符号
+		foldername = re.sub('[\/:*?"<>|.]','？',foldername)
+		authorname = re.sub('[\/:*?"<>|.]','？',authorname)
+		#保存目录
+		prev = "F:/手绘/P站/"+authorname+"/"
+		foldername = prev + foldername
+		#创建文件夹
 		if os.path.exists(foldername):
 			pass
 		else:
-			os.mkdir(foldername)
-			
+			os.makedirs(foldername)
+		#保存图片
 		if os.path.exists(foldername+"/"+filename):
 			pass
 		else:
